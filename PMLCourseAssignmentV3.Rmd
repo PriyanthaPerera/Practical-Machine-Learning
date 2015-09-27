@@ -1,0 +1,229 @@
+---
+title: 'Coursera DSS: PML Course Assignment'
+author: "Priyantha Perera"
+date: "September 25, 2015"
+output: html_document
+---
+==========================================================================
+
+Synopsis
+========
+The data for this exercise was from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways, these categorical variables are called "classe" with factor levels A, B, C, D, & E. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). The measurements were recorded at very small time intervals for each repetetion and each manner of performing the exercise.
+
+The purpose of this study is to identify a machine learning algorithm that most accurately predicts the manner in which the subjects did the exercise. A second part of this exercise is to predict the manner of exercise for 20 test cases for which the "classe" variable was not given. The results which we generate at the end of this report were submitted separately electronically as instructed for automatic grading. 
+
+##Data Sources
+The training data for this project was from: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data from: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+All the above data had been obtained by Coursera from the website http://groupware.les.inf.puc-rio.br/har
+
+##Acknowledgement
+We akcnowledge that this study is based on the data set, research and analysis described in the following paper:
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. "Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements". Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+##Technical References Used
+For the Machine Learning methodology we are following a combination of:
+
+1."Coursera lecture notes" and the following recommended course references
+2."Building Predictive Models in R Using the caret Package"
+3."The Elements of Statistical Learning"
+4."Applied Predctive Modeling"
+
+##Unreported Analyses
+Further in the run up to writing this report we have always run names(), View(), str() and dim() and other descriptive diagnostics and statistics to understand the nature of the data sets at each stage of processing. Further for each model that was fit, we looked at the objects() generated. Then we investigated modelfit and other diagnostic output statistics that were generated. Only the statistics for the best fitting model are reported here other than for the accuracy measures which was generated and evaluated for all models run. This was to conserve the length of the report. The given code will generate a reproducible report. However to understand the data, the pre-processing and other selections and choices made I recommend that one runs the above diagnostic functions and statistics as well as refer to the referenced works.
+
+Loading Required R Packages
+===========================
+```{r. "load libraries", results="hide"}
+
+suppressMessages(suppressWarnings(library(plyr)))
+suppressMessages(suppressWarnings(library(dplyr)))
+suppressMessages(suppressWarnings(library(caret)))
+suppressMessages(suppressWarnings(library(rpart)))
+suppressMessages(suppressWarnings(library(randomForest)))
+suppressMessages(suppressWarnings(library(stats)))
+```
+
+
+Data Download and Feature Selection
+===================================
+The totality of the training data "pml-training" will be split 75% to 25% into training and testing datasets respectively. The data set "pml-testing" will be used to select relevant and meaningful predictors/features as well as used as input to the final fitted model to answer the second part of the course assignment.
+
+###Training Set
+```{r, "read train set", results ="hide"}
+setwd("C:/0/Coursera/Practical Machine Learning")
+dataall <- read.csv("pml-training.csv", header =TRUE)
+dim(dataall)
+prop.table(table(dataall[,160]))
+```
+###Testing Set
+```{r, "read test set", results = "hide"}
+questtest <- read.csv("pml-testing.csv", header = TRUE)
+```
+
+As stated above we have used "View(), dim() and str() to investigate the data, but not run them for the report to conserve the length. We Observe the features involving the computed statistics "kurtosis", "skewness", "max", "min", "amplitude", "var", "avg" and "stddev" have either missing values or na's in the pml-testing set. Therefore we will omit these features from the pml-testing set and from the training set as well before model fitting and prediction.  
+
+```{r, "remove features", results ="hide"}
+data2 <- select(dataall, -contains("kurtosis"), -contains("skewness"), -contains("max"),-contains("min"),-contains("amplitude"),-contains("var"),-contains("avg"),-contains("stddev"))
+
+questtesting <- select(questtest, -contains("kurtosis"), -contains("skewness"), -contains("max"),-contains("min"),-contains("amplitude"),-contains("var"),-contains("avg"),-contains("stddev"))
+```
+
+###Create Data Partition
+Next the training set will be split 75% - 25% into an initial training set and a testing set. 
+
+```{r,"split", results = "hide"}
+set.seed(12345)
+intrain <- createDataPartition(data2$classe, p =.75, list = FALSE)
+training1 <- data2[intrain,]
+testing1 <- data2[-intrain,]
+dim(training1)
+dim(testing1)
+```
+
+Data Pre-Processing
+===================
+###Near Zero Variance Variables and High Correlation Variable Detection
+Near zero variance variables (nzv) and variables with high correlation (highCorr) in excess of 90% will be eliminated from the predictor variable set.
+```{r,"nzv"}
+nzvars <- nearZeroVar(training1[,8:59], saveMetrics =TRUE)
+dim(nzvars)[1]-sum(nzvars$nzv==FALSE)
+```
+Since all the features exhibt nzv = FALSE none are eliminated as nzv predictors.
+
+Next is the test for highly correlated variables
+```{r. "high Correlation"}
+ncol(training1)
+dataCorr <- cor(training1[,8:59])
+highCorr <- findCorrelation(dataCorr, 0.90)
+length(highCorr)
+```
+There are 7 highly correlated features. These highCorr predictor variables will be eliminated from the traininig and test sets.
+
+```{r, "highCorr>90%"}
+training2 <- training1[ , -highCorr]
+testing2 <- testing1[ ,-highCorr]
+questtesting1 <- questtesting[,-highCorr]
+```
+
+###Final Pre-Processed Data
+We select the predictor/feature set that will be used for modeling and prediction next, using View() on the entire set, not run for the report. We exclude the columns that represent non measured variables or markers as they are not predictor variables.
+
+```{r, "pre-processed data"}
+training <- training2[,7:53]
+testing <- testing2[,7:53]
+questtestingfinal <- questtesting1[,7:52]
+dim(training)
+dim(testing)
+dim(questtesting)
+```
+
+Model Fitting
+=============
+Since this is a classification exercise we have chosen to fit the following models:
+
+1. rpart
+2. gbm
+3. pca-gbm
+4. lda
+5. rf
+6. knn
+
+The final model will be selected based on the highest accuracy of the model for the test set (split out from the pml-training set) extracted from the confusion matrix. All models will be run at the default settings. If we do not get a satifactory accuracy for the best model we will investigate changing setting of train.default and trainControl to improve the fit and even investigate expanding the set of predictor models used beyond the 6 above.
+
+##1.rpart
+```{r, "rpart", results ="hide"}
+set.seed(12345)
+rpartfit <- train(classe~., data = training, method = "rpart")
+predrpart <- predict(rpartfit, newdata = testing)
+cMrpart <- confusionMatrix(predrpart, testing$classe)
+```
+##2. gbm
+```{r, "gbm", results = "hide"}
+suppressMessages(suppressWarnings(library(gbm)))
+set.seed(12345)
+gbmfit <- train(classe~., data = training, method = "gbm")
+predgbm<- predict(gbmfit, newdata = testing)
+cMgbm <- confusionMatrix(predgbm, testing$classe)
+```
+##3. pca-gbm
+```{r, "pca-gbm", results = "hide"}
+set.seed(12345)
+pcagbmfit <- train(classe~., data = training, method = "gbm", preProcess = "pca")
+predpcagbm <- predict(pcagbmfit, newdata = testing)
+cMpcagbm <- confusionMatrix(predpcagbm, testing$classe)
+```
+##4. lda
+```{r, "lda", results = "hide"}
+suppressMessages(suppressWarnings(library(MASS)))
+set.seed(12345)
+ldafit <- train(classe~., data = training, method = "lda")
+predlda <- predict(ldafit, newdata = testing)
+cMlda <- confusionMatrix(predlda, testing$classe)
+```
+##5. rf
+```{r, "rf", results = "hide"}
+set.seed(12345)
+rffit <- train(classe~., data = training, method = "rf")
+predrfTrain <- predict(rffit, newdata = training)
+predrf <- predict(rffit, newdata = testing)
+cMrfTrain <- confusionMatrix(predrfTrain, training$classe)
+cMrf <- confusionMatrix(predrf, testing$classe)
+```
+##6. knn
+```{r, "knn", results = "hide"}
+set.seed(12345)
+knnfit <- train(classe~., data=training, method = "knn")
+predknn <- predict(knnfit, newdata = testing)
+cMknn <- confusionMatrix(predknn, testing$classe)
+```
+
+Accuracy Comparison
+===================
+```{r, "accuracy"}
+accuracycompare <- cbind(cMrpart$overall[1],cMgbm$overall[1],cMlda$overall[1],cMpcagbm$overall[1],cMrf$overall[1],cMknn$overall[1])
+
+accuracycompare <- as.data.frame(accuracycompare)
+names(accuracycompare) <- c("rpart", "gbm", "lda", "pcagbm", "rf", "knn")
+t(accuracycompare)
+```
+
+Selected Final Model - Random Forest
+====================================
+The random forest model has the highest accuracy which is 99.08%. Which is quite a high accuracy level. Therfore it was selected as an appropriate model for prediction. The default control settings seem adequate as those settings produced a high level of accuracy on the test set.
+
+###Train Control Parameters used in the Final Random Forest Model
+```{r}
+args(trainControl)
+```
+
+##Estimated Expected OOB or Cross Validation Error and Accuracy of the Final Model on the Training and Test Sets
+Let us investigate the model output to observe the OOB error rate and compare it to the training and test error.
+```{r, "final model"}
+rffit$finalModel
+predrfTrain <- predict(rffit, newdata = training)
+cMrfTrain <- confusionMatrix(predrfTrain, training$classe)
+cMrfTrain$overall[1]
+cMrf$overall[1]
+```
+We see that the estimate of the expected out of bag error or cross validation error is 1.11%
+The Accuracy on the training set was 100%
+The Accuracy on the test set was 99.08%
+
+##Final Random Forest Model Confusion Matrix and Variable Importance Graph
+```{r}
+
+cMrf
+plot(varImp(rffit))
+```
+
+##Answers to the 20 Test Questions
+```{r}
+predrfquest <- predict(rffit, newdata = questtestingfinal)
+predrfquest
+```
